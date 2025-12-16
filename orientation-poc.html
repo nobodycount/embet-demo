@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Orientation Lock PoC</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:0;display:flex;align-items:center;justify-content:center;height:100vh}
+    .card{display:flex;flex-direction:column;gap:12px;align-items:center}
+    button{padding:12px 18px;border-radius:8px;border:0;background:#0b69ff;color:white;font-size:16px}
+    #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;background:rgba(0,0,0,0.85);color:#fff;padding:8px 12px;border-radius:8px;display:none}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 id="mode">Portrait</h2>
+    <button id="action">Go Landscape & Lock</button>
+    <p style="opacity:.6">This PoC attempts screen.orientation.lock(). Some browsers require fullscreen or a user gesture.</p>
+  </div>
+  <div id="fullscreenBtn" style="position:fixed;right:18px;bottom:18px;display:none">
+    <button id="fsToggle" style="background:#111;color:#fff;padding:10px 12px;border-radius:10px">⤢</button>
+  </div>
+  <div id="toast"></div>
+  <script>
+    const modeEl = document.getElementById('mode');
+    const btn = document.getElementById('action');
+    const toast = document.getElementById('toast');
+
+    function showToast(msg, t=3000){ toast.textContent = msg; toast.style.display='block'; setTimeout(()=> toast.style.display='none', t); }
+
+    function updateUI(){
+      const isPortrait = window.innerHeight > window.innerWidth;
+      modeEl.textContent = isPortrait ? 'Portrait' : 'Landscape';
+      btn.textContent = isPortrait ? 'Go Landscape & Lock' : 'Go Portrait & Lock';
+    }
+
+    async function tryLock(orientation){
+      try{
+        if (screen.orientation && screen.orientation.lock){
+          await screen.orientation.lock(orientation);
+          showToast('Locked to ' + orientation);
+          updateUI();
+          return true;
+        } else if (screen.lockOrientation){
+          screen.lockOrientation(orientation);
+          showToast('Legacy lock requested: ' + orientation);
+          updateUI();
+          return true;
+        } else {
+          showToast('Orientation lock API not supported');
+          return false;
+        }
+      } catch(e){
+        showToast('Lock failed: ' + (e && e.message ? e.message : e));
+        return false;
+      }
+    }
+
+    btn.addEventListener('click', async ()=>{
+      const isPortrait = window.innerHeight > window.innerWidth;
+      if (isPortrait){
+        // Try to enter fullscreen first if possible - some browsers require fullscreen for lock
+        try{
+          if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+        }catch(e){}
+        await tryLock('landscape');
+      } else {
+        // If we're in fullscreen, lock may only stick while fullscreen is active.
+        // Attempt to lock to portrait, wait for the viewport to become portrait, then exit fullscreen.
+        const inFs = !!document.fullscreenElement;
+        if (inFs) {
+          const ok = await tryLock('portrait');
+          if (!ok) {
+            showToast('Portrait lock failed; exiting fullscreen and applying fallback');
+            try{ if (document.fullscreenElement) await document.exitFullscreen(); }catch(e){}
+            return;
+          }
+          const waited = await waitForPortrait(2000, 120);
+          if (waited) {
+            try{ if (document.fullscreenElement) await document.exitFullscreen(); }catch(e){}
+            showToast('Locked to portrait and exited fullscreen');
+          } else {
+            showToast('Portrait not detected after lock; keeping fullscreen');
+          }
+        } else {
+          await tryLock('portrait');
+        }
+      }
+    });
+
+    // Wait for the viewport to become portrait; resolves true if portrait detected within timeout.
+    function waitForPortrait(timeout = 2000, interval = 100) {
+      return new Promise((resolve) => {
+        const start = Date.now();
+        const check = () => {
+          if (window.innerHeight > window.innerWidth) return resolve(true);
+          if (Date.now() - start >= timeout) return resolve(false);
+          setTimeout(check, interval);
+        };
+        check();
+      });
+    }
+
+    // Fullscreen toggle button - visible in landscape when not fullscreen
+    const fsContainer = document.getElementById('fullscreenBtn');
+    const fsToggle = document.getElementById('fsToggle');
+    function updateFsVisibility(){
+      const isLandscape = window.innerWidth > window.innerHeight;
+      const isFs = !!document.fullscreenElement;
+      fsContainer.style.display = (isLandscape && !isFs) || isFs ? 'block' : 'none';
+    }
+    fsToggle.addEventListener('click', async ()=>{
+      const isFs = !!document.fullscreenElement;
+      if (isFs){
+        try{ await document.exitFullscreen(); showToast('Exited fullscreen'); }catch(e){ showToast('exit fullscreen failed'); }
+      } else {
+        try{ await document.documentElement.requestFullscreen(); showToast('Requested fullscreen'); }catch(e){ showToast('requestFullscreen failed'); }
+      }
+    });
+    window.addEventListener('resize', updateFsVisibility);
+    document.addEventListener('fullscreenchange', ()=>{ updateFsVisibility(); updateUI(); });
+    updateFsVisibility();
+
+    window.addEventListener('resize', updateUI);
+    updateUI();
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>emBET Panel</title>
+    <meta name="app-version" content="7">
     <link rel="manifest" href="manifest.json">
     <link href="https://vjs.zencdn.net/8.6.1/video-js.css" rel="stylesheet">
     <script src="https://vjs.zencdn.net/8.6.1/video.js"></script>
@@ -74,16 +75,116 @@
         }
         /* prevent body scroll while simulated fullscreen */
         .no-scroll { overflow: hidden !important; height: 100% !important; }
+
+        /* Force-portrait fallback when orientation lock is unavailable */
+        .force-portrait .video-js {
+            width: 100vw !important;
+            height: auto !important;
+            max-height: 100vh !important;
+        }
+
+        #rotateHint {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 80px;
+            background: rgba(0,0,0,0.85);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 8px;
+            z-index: 20000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        #rotateHint button {
+            background: rgba(255,255,255,0.12);
+            color: white;
+            border: none;
+            padding: 6px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
     <div id="fullscreenBtn" title="Toggle fullscreen">⤢</div>
+    <div id="rotateHint" style="display:none;">Please rotate your device to portrait <button id="rotateOk">Done</button></div>
+    <div id="toastContainer" aria-live="polite" style="position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:30000;pointer-events:none"></div>
+    <button id="installBtn" style="display:none;position:fixed;left:16px;bottom:16px;z-index:10000;padding:10px 12px;border-radius:8px;border:none;background:#1a73e8;color:white">Install</button>
     <video id="myVideo" class="video-js vjs-default-skin" width="640" height="360" data-setup='{"controls": true}'>
         <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">
         Your browser does not support the video tag.
     </video>
     <script>
         let player;
+        // Lightweight toast helper for on-screen logs during mobile testing
+        function showToast(message, duration = 3500) {
+            try {
+                const container = document.getElementById('toastContainer');
+                if (!container) return;
+                const t = document.createElement('div');
+                t.className = 'toast';
+                t.textContent = message;
+                t.style.pointerEvents = 'auto';
+                t.style.marginTop = '6px';
+                t.style.background = 'rgba(0,0,0,0.85)';
+                t.style.color = 'white';
+                t.style.padding = '8px 12px';
+                t.style.borderRadius = '8px';
+                t.style.boxShadow = '0 6px 18px rgba(0,0,0,0.4)';
+                t.style.fontFamily = 'Arial, sans-serif';
+                t.style.fontSize = '14px';
+                t.style.opacity = '0';
+                t.style.transition = 'opacity 240ms ease, transform 240ms ease';
+                t.style.transform = 'translateY(6px)';
+                container.appendChild(t);
+                // force reflow
+                void t.offsetWidth;
+                t.style.opacity = '1';
+                t.style.transform = 'translateY(0)';
+                const hide = () => {
+                    t.style.opacity = '0';
+                    t.style.transform = 'translateY(6px)';
+                    setTimeout(() => { try { t.remove(); } catch(e){} }, 300);
+                };
+                const timer = setTimeout(hide, duration);
+                t.addEventListener('click', () => { clearTimeout(timer); hide(); });
+            } catch (e) { console.debug('showToast failed', e); }
+        }
+
+        // Add PWA install button handling
+        (function installButton() {
+            let deferredPrompt = null;
+            const installBtn = document.getElementById('installBtn');
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                // Prevent the mini-infobar from appearing on mobile
+                e.preventDefault();
+                deferredPrompt = e;
+                installBtn.style.display = 'block';
+                showToast('Install available');
+            });
+
+            installBtn.addEventListener('click', async () => {
+                if (!deferredPrompt) return;
+                installBtn.style.display = 'none';
+                deferredPrompt.prompt();
+                const choice = await deferredPrompt.userChoice;
+                showToast('Install ' + (choice.outcome || 'dismissed'));
+                deferredPrompt = null;
+            });
+
+            window.addEventListener('appinstalled', () => {
+                showToast('App installed');
+                deferredPrompt = null;
+                installBtn.style.display = 'none';
+            });
+        })();
         
         function exitFullscreen() {
             if (document.exitFullscreen) {
@@ -94,7 +195,16 @@
                 document.msExitFullscreen();
             }
         }
+        let justEnteredFullscreen = false;
+        let lockPending = false;
+
         function updateOverlay(props) {
+            // read static app version from meta tag (bumped when files change)
+            let v = '0';
+            try {
+                const m = document.querySelector('meta[name="app-version"]');
+                if (m) v = m.content || '0';
+            } catch (e) { console.warn('read app-version failed', e); }
             const video = document.getElementById('myVideo');
             const overlay = document.getElementById('overlay');
             const isPortrait = window.innerHeight > window.innerWidth;
@@ -115,9 +225,13 @@
 
             const rect = video.getBoundingClientRect();
 
-            // Exit fullscreen if switching to portrait
-            if (isPortrait && document.fullscreenElement) {
-                exitFullscreen();
+            // Exit fullscreen if switching to portrait, but avoid doing so immediately
+            // after a user-initiated fullscreen entry or while orientation lock is pending.
+            const hasSimulated = !!document.querySelector('.simulated-fullscreen');
+            if (isPortrait && (document.fullscreenElement || hasSimulated) && !justEnteredFullscreen && !lockPending) {
+                console.debug('updateOverlay: exiting fullscreen because portrait detected and no lock pending', { fullscreenElement: !!document.fullscreenElement, hasSimulated });
+                // use the unified exit handler which also pauses playback and unlocks/locks orientation
+                exitFullscreenAndUnlock();
             }
             
             if (embetPanel) {
@@ -125,9 +239,11 @@
             }
             
             if (overlay) {
-                overlay.innerHTML = `
-                    Device Pixel Ratio: ${window.devicePixelRatio.toFixed(2)}<br>
-                    <hr>
+                const ver = window.embetOverlayVersion || localStorage.getItem('embet_overlay_version') || '0';
+                    overlay.innerHTML = `
+                        <strong>ver: ${v}</strong><br>
+                        Device Pixel Ratio: ${window.devicePixelRatio.toFixed(2)}<br>
+                        <hr>
                     Screen Width: ${window.screen.width.toFixed(2)}px<br>
                     Screen Height: ${window.screen.height.toFixed(2)}px<br>
                     Screen Ratio: ${(window.screen.width / window.screen.height).toFixed(2)}<br>
@@ -200,6 +316,19 @@
 
             const video = document.getElementById('myVideo');
             player = videojs('myVideo');
+            // Listen for video.js fullscreen changes (player control) and map to our handlers
+            try {
+                player.on && player.on('fullscreenchange', function() {
+                    console.debug('video.js fullscreenchange event, player.isFullscreen:', player.isFullscreen && player.isFullscreen());
+                    showToast('video.js fullscreenchange');
+                    // If player reports it's not fullscreen, run cleanup
+                    try {
+                        if (player.isFullscreen && !player.isFullscreen()) {
+                            cleanupAfterExit();
+                        }
+                    } catch (e) { console.warn('video.js fullscreen handler error', e); }
+                });
+            } catch (e) { console.debug('failed to attach video.js fullscreen handler', e); }
             const overlay = document.createElement('div');
             overlay.id = 'overlay';
             ['click', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'mousemove', 'touchmove'].forEach(event => {
@@ -211,33 +340,60 @@
             });*/
             updateOverlay();
             document.addEventListener('fullscreenchange', () => setTimeout(updateOverlay, 200));
-            window.addEventListener('orientationchange', () => setTimeout(updateOverlay, 100));
+            window.addEventListener('orientationchange', () => {
+                console.debug('orientationchange event fired', { orientation: screen.orientation ? screen.orientation.type : 'n/a', width: window.innerWidth, height: window.innerHeight });
+                setTimeout(() => {
+                    updateOverlay();
+                    // if portrait now and fullscreen still active, ensure exit
+                    if (window.innerHeight > window.innerWidth && (document.fullscreenElement || document.querySelector('.simulated-fullscreen'))) {
+                        console.debug('orientationchange handler: detected portrait while fullscreen; exiting');
+                        exitFullscreenAndUnlock();
+                    }
+                    // if orientation changed to portrait, remove any portrait fallback
+                    if (window.innerHeight > window.innerWidth) {
+                        clearPortraitFallback();
+                    }
+                }, 100);
+            });
         };
 
         // Fullscreen + orientation helpers
         async function enterFullscreenAndLock() {
             const el = player && player.el ? player.el() : document.documentElement;
             let didFullscreen = false;
+            // prevent transient orientation change handlers from immediately exiting
+            justEnteredFullscreen = true;
+            setTimeout(() => { justEnteredFullscreen = false; }, 1500);
             try {
                 if (!document.fullscreenElement && el.requestFullscreen) {
                     await el.requestFullscreen();
                     didFullscreen = true;
+                    showToast('Entered native fullscreen');
                 }
             } catch (err) {
                 console.warn('requestFullscreen blocked', err);
+                showToast('requestFullscreen blocked');
             }
             try {
                 if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock('landscape');
+                    lockPending = true;
+                    try {
+                        await screen.orientation.lock('landscape');
+                        showToast('Orientation locked to landscape');
+                    } finally {
+                        lockPending = false;
+                    }
                 }
             } catch (err) {
                 console.warn('orientation.lock blocked or unavailable', err);
+                showToast('orientation.lock blocked or unavailable');
             }
             if (!didFullscreen) {
                 // apply simulated fullscreen styles
                 const target = player && player.el ? player.el() : document.documentElement;
                 target.classList.add('simulated-fullscreen');
                 document.documentElement.classList.add('no-scroll');
+                showToast('Applied simulated fullscreen');
             }
             updateOverlay();
             // update button state
@@ -245,12 +401,133 @@
         }
 
         async function exitFullscreenAndUnlock() {
-            try { if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen(); } catch(e){}
-            try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch(e){}
-            document.querySelectorAll('.simulated-fullscreen').forEach(el => el.classList.remove('simulated-fullscreen'));
+            console.debug('exitFullscreenAndUnlock: start');
+            // pause immediately to avoid audio continuing while exit transitions
+            try {
+                if (player && player.pause) {
+                    player.pause();
+                    console.debug('player.pause() called');
+                    showToast('Playback paused');
+                } else {
+                    const vid = document.getElementById('myVideo');
+                    if (vid && !vid.paused) {
+                        vid.pause();
+                        console.debug('video.pause() called');
+                        showToast('Playback paused');
+                    }
+                }
+            } catch(e) { console.warn('pause failed early', e); }
+            // exit native fullscreen first
+            try {
+                if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+            } catch(e){ console.warn('exit fullscreen failed', e); }
+
+            // remove simulated fullscreen classes
+            try {
+                document.querySelectorAll('.simulated-fullscreen').forEach(el => el.classList.remove('simulated-fullscreen'));
+            } catch(e) { console.warn('remove simulated failed', e); }
+
+            // try to set portrait orientation (best-effort)
+            try {
+                const ok = await tryLockPortrait();
+                if (ok) showToast('Orientation locked to portrait');
+                else showToast('Orientation lock to portrait failed');
+            } catch(e) { console.warn('portrait lock failed', e); showToast('Orientation lock to portrait failed'); }
+
+            justEnteredFullscreen = false;
             document.documentElement.classList.remove('no-scroll');
+
+            // pause playback when leaving fullscreen
+            try {
+                if (player && player.pause) {
+                    player.pause();
+                } else {
+                    const vid = document.getElementById('myVideo');
+                    if (vid && !vid.paused) vid.pause();
+                }
+            } catch(e) { console.warn('pause failed', e); }
+
+            showToast('Exited fullscreen');
+
             updateOverlay();
             updateFullscreenButton();
+            console.debug('exitFullscreenAndUnlock: done');
+        }
+
+
+        // Centralized cleanup used by multiple event handlers
+        async function cleanupAfterExit() {
+            try {
+                if (player && player.pause) player.pause();
+            } catch(e) { console.warn('cleanup pause failed', e); }
+            try { document.querySelectorAll('.simulated-fullscreen').forEach(el => el.classList.remove('simulated-fullscreen')); } catch(e){}
+            try { document.documentElement.classList.remove('no-scroll'); } catch(e){}
+            try {
+                const ok = await tryLockPortrait();
+                if (ok) {
+                    clearPortraitFallback();
+                    showToast('cleanup: orientation lock to portrait succeeded');
+                } else {
+                    applyPortraitFallback();
+                    showToast('cleanup: orientation lock unavailable, applied portrait fallback');
+                }
+            } catch(e) { console.warn('cleanup portrait lock failed', e); applyPortraitFallback(); showToast('cleanup: orientation lock failed'); }
+            updateOverlay();
+            updateFullscreenButton();
+            justEnteredFullscreen = false;
+            lockPending = false;
+        }
+
+        // Show a rotate hint and apply a CSS-based portrait fallback if orientation lock fails
+        function applyPortraitFallback() {
+            console.debug('applyPortraitFallback: applying force-portrait layout');
+            document.documentElement.classList.add('force-portrait');
+            const hint = document.getElementById('rotateHint');
+            if (hint) hint.style.display = 'flex';
+            showToast('Applied portrait fallback - please rotate device');
+        }
+
+        function clearPortraitFallback() {
+            console.debug('clearPortraitFallback: clearing force-portrait layout');
+            document.documentElement.classList.remove('force-portrait');
+            const hint = document.getElementById('rotateHint');
+            if (hint) hint.style.display = 'none';
+            showToast('Cleared portrait fallback');
+        }
+
+        // Try to lock screen to portrait with retries and variant fallbacks.
+        async function tryLockPortrait(options = {}) {
+            const maxAttempts = options.maxAttempts || 4;
+            const delay = options.delay || 300; // ms
+            if (!('orientation' in screen) || !screen.orientation || !screen.orientation.lock) {
+                // Legacy API
+                if (screen.lockOrientation) {
+                    try {
+                        screen.lockOrientation('portrait');
+                        return true;
+                    } catch (e) { return false; }
+                }
+                return false;
+            }
+
+            const variants = ['portrait-primary', 'portrait-secondary', 'portrait'];
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                for (const v of variants) {
+                    try {
+                        await screen.orientation.lock(v);
+                        console.debug('tryLockPortrait: locked to', v);
+                        return true;
+                    } catch (err) {
+                        console.debug('tryLockPortrait: lock to', v, 'failed', err);
+                        // continue trying other variants
+                    }
+                }
+                // Some browsers only allow lock within a user gesture or when in fullscreen.
+                // Wait and retry a few times.
+                await new Promise(r => setTimeout(r, delay));
+            }
+            console.debug('tryLockPortrait: all attempts failed');
+            return false;
         }
 
         function updateFullscreenButton() {
@@ -275,26 +552,86 @@
                     await exitFullscreenAndUnlock();
                 } else {
                     await enterFullscreenAndLock();
+                    // Attempt to play the video (may be blocked without user gesture in some browsers)
+                    try {
+                        if (player && player.play) {
+                            await player.play();
+                        } else {
+                            const vid = document.getElementById('myVideo');
+                            if (vid) await vid.play();
+                        }
+                    } catch (err) {
+                        console.warn('autoplay blocked or failed', err);
+                        showToast('Autoplay blocked or failed');
+                    }
                 }
             });
             // reflect changes when user exits via system controls
-            document.addEventListener('fullscreenchange', updateFullscreenButton);
-            window.addEventListener('orientationchange', () => setTimeout(updateFullscreenButton, 200));
+            document.addEventListener('fullscreenchange', async (e) => {
+                console.debug('fullscreenchange event', document.fullscreenElement);
+                // if user exited fullscreen manually, ensure we pause and clean simulated state
+                if (!document.fullscreenElement) {
+                    try {
+                        if (player && player.pause) player.pause();
+                    } catch (err) { console.warn('pause on fullscreenchange failed', err); }
+                    try { document.querySelectorAll('.simulated-fullscreen').forEach(el => el.classList.remove('simulated-fullscreen')); } catch(e){}
+                    try { document.documentElement.classList.remove('no-scroll'); } catch(e){}
+                    try {
+                        const ok = await tryLockPortrait();
+                        if (ok) showToast('fullscreenchange: locked to portrait');
+                        else showToast('fullscreenchange: portrait lock failed');
+                    } catch(e) { console.warn('fullscreenchange portrait lock failed', e); showToast('fullscreenchange: portrait lock failed'); }
+                    showToast('fullscreenchange: exited native fullscreen');
+                }
+                updateFullscreenButton();
+            });
+            // WebKit vendor event
+            document.addEventListener('webkitfullscreenchange', async (e) => {
+                console.debug('webkitfullscreenchange event', document.webkitIsFullScreen);
+                if (!document.webkitIsFullScreen) {
+                    try {
+                        if (player && player.pause) player.pause();
+                    } catch (err) { console.warn('pause on webkitfullscreenchange failed', err); }
+                    try { document.querySelectorAll('.simulated-fullscreen').forEach(el => el.classList.remove('simulated-fullscreen')); } catch(e){}
+                    try { document.documentElement.classList.remove('no-scroll'); } catch(e){}
+                }
+                updateFullscreenButton();
+            });
+            // other lifecycle events that may indicate exit or navigation
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') return;
+                console.debug('visibilitychange: not visible, running cleanup');
+                showToast('visibilitychange: hidden, cleaning up');
+                cleanupAfterExit();
+            });
+            window.addEventListener('pagehide', () => {
+                console.debug('pagehide: running cleanup');
+                showToast('pagehide: cleaning up');
+                cleanupAfterExit();
+            });
+            // handle SPA-style navigation/back events
+            window.addEventListener('popstate', () => {
+                console.debug('popstate: running cleanup');
+                cleanupAfterExit();
+            });
+            window.addEventListener('orientationchange', () => { console.debug('orientationchange', screen.orientation ? screen.orientation.type : 'n/a'); setTimeout(updateFullscreenButton, 200); });
             updateFullscreenButton();
         })();
 
-        // Register service worker
-        /*if ('serviceWorker' in navigator) {
+        // Register service worker (required for PWA installability)
+        if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/sw.js')
                     .then((registration) => {
                         console.log('Service Worker registered successfully:', registration);
+                        showToast('Service Worker registered');
                     })
                     .catch((error) => {
                         console.log('Service Worker registration failed:', error);
+                        showToast('Service Worker registration failed');
                     });
             });
-        }*/
+        }
     </script>
 </body>
 </html>
