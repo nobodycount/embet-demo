@@ -268,9 +268,9 @@
         window.addEventListener('orientationchange', debouncedUpdateOverlay);
 
         // Register service worker
-        /*if ('serviceWorker' in navigator) {
+        if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
+                navigator.serviceWorker.register('./sw.js')
                     .then((registration) => {
                         console.log('Service Worker registered successfully:', registration);
                     })
@@ -278,7 +278,7 @@
                         console.log('Service Worker registration failed:', error);
                     });
             });
-        }*/
+        }
 
         // Disable Picture-in-Picture functionality
         const video = document.getElementById('myVideo');
