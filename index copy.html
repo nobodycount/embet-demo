@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>emBET Panel</title>
     <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="emBET Panel">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon-180.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="icons/apple-touch-icon-152.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="icons/apple-touch-icon.png">
     <script src="embet.umd.min.js?a=6"></script>
     <style>
         body, html {
@@ -131,6 +137,19 @@
             updateOverlay();
             window.addEventListener('orientationchange', () => setTimeout(updateOverlay, 100));
             window.addEventListener('resize', () => setTimeout(updateOverlay, 100));
+
+            // Register service worker (relative path)
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('sw.js')
+                        .then((registration) => {
+                            console.log('Service Worker registered successfully:', registration);
+                        })
+                        .catch((error) => {
+                            console.log('Service Worker registration failed:', error);
+                        });
+                });
+            }
         };
     </script>
 </body>
