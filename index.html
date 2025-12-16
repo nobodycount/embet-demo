@@ -43,9 +43,41 @@
             font-size: 14px;
             z-index: 10;
         }
+        /* Fullscreen button */
+        #fullscreenBtn {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            width: 56px;
+            height: 56px;
+            border-radius: 28px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            font-size: 20px;
+            user-select: none;
+        }
+        /* Simulated fullscreen used when requestFullscreen is blocked */
+        .simulated-fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 9999 !important;
+            background: black !important;
+        }
+        /* prevent body scroll while simulated fullscreen */
+        .no-scroll { overflow: hidden !important; height: 100% !important; }
     </style>
 </head>
 <body>
+    <div id="fullscreenBtn" title="Toggle fullscreen">⤢</div>
     <video id="myVideo" class="video-js vjs-default-skin" width="640" height="360" data-setup='{"controls": true}'>
         <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">
         Your browser does not support the video tag.
@@ -181,6 +213,75 @@
             document.addEventListener('fullscreenchange', () => setTimeout(updateOverlay, 200));
             window.addEventListener('orientationchange', () => setTimeout(updateOverlay, 100));
         };
+
+        // Fullscreen + orientation helpers
+        async function enterFullscreenAndLock() {
+            const el = player && player.el ? player.el() : document.documentElement;
+            let didFullscreen = false;
+            try {
+                if (!document.fullscreenElement && el.requestFullscreen) {
+                    await el.requestFullscreen();
+                    didFullscreen = true;
+                }
+            } catch (err) {
+                console.warn('requestFullscreen blocked', err);
+            }
+            try {
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock('landscape');
+                }
+            } catch (err) {
+                console.warn('orientation.lock blocked or unavailable', err);
+            }
+            if (!didFullscreen) {
+                // apply simulated fullscreen styles
+                const target = player && player.el ? player.el() : document.documentElement;
+                target.classList.add('simulated-fullscreen');
+                document.documentElement.classList.add('no-scroll');
+            }
+            updateOverlay();
+            // update button state
+            updateFullscreenButton();
+        }
+
+        async function exitFullscreenAndUnlock() {
+            try { if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen(); } catch(e){}
+            try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch(e){}
+            document.querySelectorAll('.simulated-fullscreen').forEach(el => el.classList.remove('simulated-fullscreen'));
+            document.documentElement.classList.remove('no-scroll');
+            updateOverlay();
+            updateFullscreenButton();
+        }
+
+        function updateFullscreenButton() {
+            const btn = document.getElementById('fullscreenBtn');
+            if (!btn) return;
+            if (document.fullscreenElement || document.querySelector('.simulated-fullscreen')) {
+                btn.textContent = '✕';
+                btn.title = 'Exit fullscreen';
+            } else {
+                btn.textContent = '⤢';
+                btn.title = 'Enter fullscreen';
+            }
+        }
+
+        // Hook up the button
+        (function setupFullscreenButton() {
+            const btn = document.getElementById('fullscreenBtn');
+            if (!btn) return;
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                if (document.fullscreenElement || document.querySelector('.simulated-fullscreen')) {
+                    await exitFullscreenAndUnlock();
+                } else {
+                    await enterFullscreenAndLock();
+                }
+            });
+            // reflect changes when user exits via system controls
+            document.addEventListener('fullscreenchange', updateFullscreenButton);
+            window.addEventListener('orientationchange', () => setTimeout(updateFullscreenButton, 200));
+            updateFullscreenButton();
+        })();
 
         // Register service worker
         /*if ('serviceWorker' in navigator) {
