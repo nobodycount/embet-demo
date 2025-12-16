@@ -2,7 +2,7 @@
     "name": "Video Player",
     "short_name": "VideoPlayer",
     "description": "A lightweight video player demo",
-    "start_url": "./",
+    "start_url": "/",
     "scope": ".",
     "display": "standalone",
     "orientation": "any",
