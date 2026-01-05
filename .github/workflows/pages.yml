@@ -18,7 +18,7 @@ jobs:
       - name: Bump app version (workspace only)
         run: |
           chmod +x ./scripts/bump-version.sh
-          ./scripts/bump-version.sh
+          ./scripts/bump-version.sh index.html
           echo "Bumped app-version in workspace (not committing back to repo)"
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
