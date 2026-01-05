@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>emBET Panel</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="emBET Panel">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon-180.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="icons/apple-touch-icon-152.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="icons/apple-touch-icon.png">
+    <script src="embet.umd.min.js?a=6"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            z-index: 10;
+        }
+
+        embet-panel {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        function updateOverlay(props) {
+            const overlay = document.getElementById('overlay');
+            const isPortrait = window.innerHeight > window.innerWidth;
+            const embetPanel = document.querySelector('embet-panel');
+
+            if (embetPanel) {
+                embetPanel.style.display = (isPortrait) ? 'none' : 'block';
+            }
+            
+            if (overlay) {
+                overlay.innerHTML = `
+                    Device Pixel Ratio: ${window.devicePixelRatio.toFixed(2)}<br>
+                    <hr>
+                    Screen Width: ${window.screen.width.toFixed(2)}px<br>
+                    Screen Height: ${window.screen.height.toFixed(2)}px<br>
+                    Screen Ratio: ${(window.screen.width / window.screen.height).toFixed(2)}<br>
+                    <hr>
+                    Window Width: ${window.innerWidth.toFixed(2)}px<br>
+                    Window Height: ${window.innerHeight.toFixed(2)}px<br>
+                    Window Ratio: ${(window.innerWidth / window.innerHeight).toFixed(2)}
+                `;
+
+                if (props && !isPortrait) {
+                    overlay.innerHTML += `
+                        <br><hr>
+                        Base Width: ${props.baseWidth.toFixed(2)}px<br>
+                        Base Height: ${props.baseHeight.toFixed(2)}px<br>
+                        Base Aspect Ratio: ${props.baseAspectRatio.toFixed(2)}<br>
+                        <hr>
+                        Container Width: ${props.containerWidth.toFixed(2)}px<br>
+                        Container Height: ${props.containerHeight.toFixed(2)}px<br>
+                        Container Aspect Ratio: ${props.containerAspectRatio.toFixed(2)}<br>
+                        <hr>
+                        Scale: ${props.scale.toFixed(2)}<br>
+                    `;
+                }
+            }
+        }
+
+        initializeEmbet = function() {
+            embet.init({
+                clientId: 'LiGnCHKp9bp4BmLJ8dgPQ4wIcNWJdUSmw8VRxVk8'
+            }).then(((profile) => {
+                console.log('Embet initialized with profile:', profile);
+
+                embet.eventManager(handleEventManagerCallback);
+                embet.betPlacementConfig({
+                    amounts: [1, 5, 10],
+                    currency: '€',
+                    currencyDisplay: 'prefix',
+                    decimalSign: ',',
+                    betHandler: (payload) => {
+                        console.log('Bet placed:', payload);
+                        return new Promise((resolve) => {
+                            setTimeout(() => {
+                                resolve({ success: true });
+                            }, 3000); // 3 second delay
+                        });
+                    },
+                    layout: 'vertical',
+                    maxAmount: 10000
+                });
+                embet.resizeConfig({
+                    enabled: true,
+                    hostElement: "body"
+                });
+
+                const embetPanel = document.createElement('embet-panel');
+                embetPanel.setAttribute('programid', 'bd971ff4-d636-4512-9795-ae77e661c97e');
+                document.body.appendChild(embetPanel);
+                updateOverlay();
+            }));
+        }
+
+        handleEventManagerCallback = function(event) {
+            console.log('Embet Event:', event);
+
+            if (event.eventName !== 'widget_resized') return;
+
+            setTimeout(() => updateOverlay(event.payload), 300);
+        }
+
+        window.onload = function() {
+            initializeEmbet();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'overlay';
+            ['click', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'mousemove', 'touchmove'].forEach(event => {
+                overlay.addEventListener(event, (e) => e.stopPropagation());
+            });
+            document.body.appendChild(overlay);
+            updateOverlay();
+            window.addEventListener('orientationchange', () => setTimeout(updateOverlay, 100));
+            window.addEventListener('resize', () => setTimeout(updateOverlay, 100));
+
+            // Register service worker (relative path)
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('sw.js')
+                        .then((registration) => {
+                            console.log('Service Worker registered successfully:', registration);
+                        })
+                        .catch((error) => {
+                            console.log('Service Worker registration failed:', error);
+                        });
+                });
+            }
+        };
+    </script>
+</body>
+</html>
