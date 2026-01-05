@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-file="index.html"
-if [ ! -f "$file" ]; then
-  echo "index.html not found"
+
+# Ensure the script is called with the correct number of arguments
+if [ "$#" -lt 1 ]; then
+  echo "Usage: $0 <file>"
   exit 1
 fi
+
+file="$1"
+if [ ! -f "$file" ]; then
+  echo "$file not found"
+  exit 1
+fi
+
 current=$(sed -n 's/.*<meta name="app-version" content="\([^"]*\)".*/\1/p' "$file" | head -n1 || true)
 if [[ -z "$current" ]]; then
   # insert meta tag after <title> or at end of head
