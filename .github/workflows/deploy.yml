@@ -24,6 +24,9 @@ jobs:
     - name: Build the app
       run: npm run build
 
+    - name: Bump app version
+      run: ./scripts/bump-version.sh index.html
+
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
