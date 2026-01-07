@@ -537,17 +537,11 @@
 
         document.body.appendChild(fullscreenButton);
 
+        // Update the fullscreenButton click handler to ensure fullscreen is entered first
         fullscreenButton.onclick = async () => {
             const video = document.getElementById('myVideo');
             try {
-                // Attempt to lock screen orientation to landscape
-                if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock('landscape');
-                } else {
-                    console.warn('Screen orientation lock not supported on this device.');
-                }
-
-                // Enter fullscreen mode
+                // Enter fullscreen mode first
                 if (video.requestFullscreen) {
                     await video.requestFullscreen();
                 } else if (video.webkitRequestFullscreen) {
@@ -556,6 +550,14 @@
                     await video.msRequestFullscreen();
                 } else {
                     alert('Fullscreen mode is not supported on this device.');
+                    return;
+                }
+
+                // Lock screen orientation to landscape
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock('landscape');
+                } else {
+                    console.warn('Screen orientation lock not supported on this device.');
                 }
             } catch (error) {
                 console.error('Error entering fullscreen or locking orientation:', error);
