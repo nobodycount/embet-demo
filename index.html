@@ -38,6 +38,7 @@
         }
 
         #overlay {
+            display: none; /*temporary*/
             position: absolute;
             top: 10px;
             left: 10px;
@@ -49,16 +50,106 @@
             font-size: 14px;
             z-index: 10;
         }
+
+        #loadingIndicator {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            font-size: 20px;
+            z-index: 2000;
+        }
+
+        #loadingIndicator .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #myVideo {
+            display: none; /* Hide the video player initially */
+            /*height: auto;*/
+        }
+
+        #myVideo video {
+            /*height: auto;*/
+        }
+
+        .video-js .vjs-time-control {
+            display: block;
+        }
+        .video-js .vjs-remaining-time {
+            display: none;
+        }
+
+        .video-js .vjs-duration, .video-js .vjs-time-divider {
+            display: none;
+        }
+
+        /* Modal styles */
+        #highlightModal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border: 1px solid #ccc;
+            z-index: 1000;
+        }
+
+        #modalBackdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+
+        .vjs-highlight-button {
+            /* Custom styles for the highlight button */
+        }
     </style>
 </head>
 <body>
-    <video id="myVideo" class="video-js vjs-default-skin" width="640" height="360" data-setup='{"controls": true}'>
-        <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">
-        Your browser does not support the video tag.
-    </video>
+    <div id="loadingIndicator">
+        <div class="spinner"></div>
+        Loading...
+    </div>
+    <video id="myVideo" class="video-js vjs-default-skin" preload="auto" data-setup='{"controls": true}'></video>
+
+    <!-- Modal HTML -->
+    <div id="highlightModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border: 1px solid #ccc; z-index: 1000;">
+      <h3>Select a Highlight</h3>
+      <ul id="highlightList" style="list-style: none; padding: 0;"></ul>
+      <button onclick="closeModal()">Close</button>
+    </div>
+    <div id="modalBackdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 999;" onclick="closeModal()"></div>
+
     <script>
         let player;
-        
+
         function exitFullscreen() {
             if (document.exitFullscreen) {
                 document.exitFullscreen();
@@ -117,15 +208,15 @@
                 if (props && !isPortrait) {
                     overlay.innerHTML += `
                         <br><hr>
-                        Base Width: ${props.baseWidth.toFixed(2)}px<br>
-                        Base Height: ${props.baseHeight.toFixed(2)}px<br>
-                        Base Aspect Ratio: ${props.baseAspectRatio.toFixed(2)}<br>
+                        Base Width: ${props.baseWidth?.toFixed(2)}px<br>
+                        Base Height: ${props.baseHeight?.toFixed(2)}px<br>
+                        Base Aspect Ratio: ${props.baseAspectRatio?.toFixed(2)}<br>
                         <hr>
-                        Container Width: ${props.containerWidth.toFixed(2)}px<br>
-                        Container Height: ${props.containerHeight.toFixed(2)}px<br>
-                        Container Aspect Ratio: ${props.containerAspectRatio.toFixed(2)}<br>
+                        Container Width: ${props.containerWidth?.toFixed(2)}px<br>
+                        Container Height: ${props.containerHeight?.toFixed(2)}px<br>
+                        Container Aspect Ratio: ${props.containerAspectRatio?.toFixed(2)}<br>
                         <hr>
-                        Scale: ${props.scale.toFixed(2)}<br>
+                        Scale: ${props.scale?.toFixed(2)}<br>
                     `;
                 }
 
@@ -198,6 +289,74 @@
 
             const video = document.getElementById('myVideo');
             player = videojs('myVideo');
+            player.options({
+                controlBar: {
+                    remainingTimeDisplay: {
+                        displayNegative: false
+                    }
+                },
+                enableSmoothSeeking: true
+            });
+
+            // Attach the ready event listener immediately after initialization
+            player.ready(function() {
+                console.log("Player ready...");
+                player.currentTime(1375); // Jump to 1375 seconds when the player is ready
+
+                // Explicitly configure the control bar to include and show the current time
+                player.controlBar.options_.children = [
+                    'playToggle',
+                    'volumePanel',
+                    'currentTimeDisplay',
+                    'progressControl',
+                    'durationDisplay',
+                    'fullscreenToggle'
+                ];
+                player.controlBar.currentTimeDisplay.show();
+                player.controlBar.remainingTimeDisplay.hide();
+
+                // Ensure the highlight button is added after the player is initialized
+                const highlightButton = player.controlBar.addChild('button', {
+                    text: 'Highlights'
+                });
+                highlightButton.addClass('vjs-highlight-button');
+                highlightButton.on('click', openModal);
+
+                setTimeout(() => {
+                    video.style.display = 'block'; // Show the video player when ready
+                    const loadingIndicator = document.getElementById('loadingIndicator');
+                    if (loadingIndicator) {
+                        loadingIndicator.style.display = 'none';
+                    }
+                }, 1000);
+            });
+
+            // Add event listeners for play, pause, and scrubbing
+            player.on('play', function() {
+                console.log('Video started playing');
+                // Future logic for play event
+            });
+
+            player.on('pause', function() {
+                console.log('Video paused');
+                // Future logic for pause event
+            });
+
+            /*player.on('timeupdate', function() {
+                if (player.seeking()) {
+                    console.log('User is scrubbing through the video');
+                }
+                // Future logic for scrubbing or time jumps
+            });*/
+
+            // Update scrubber handle in real-time during scrubbing
+            /*player.on('seeking', function() {
+                const currentTime = player.currentTime();
+                console.log(`Scrubbing... Current time: ${currentTime}`);
+                // Logic to update scrubber handle position dynamically
+                // This depends on your custom scrubber implementation
+            });*/
+
             const overlay = document.createElement('div');
             overlay.id = 'overlay';
             ['click', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'mousemove', 'touchmove'].forEach(event => {
@@ -208,6 +367,36 @@
             document.addEventListener('fullscreenchange', () => setTimeout(updateOverlay, 200));
             window.addEventListener('orientationchange', () => setTimeout(updateOverlay, 100));
         };
+
+        // Add a message below the video player for portrait mode
+        const message = document.createElement('div');
+        message.id = 'portraitMessage';
+        message.style.display = 'none';
+        message.style.textAlign = 'center';
+        message.style.marginTop = '10px';
+        message.style.fontFamily = 'Arial, sans-serif';
+        message.style.fontSize = '14px';
+        message.style.color = '#555';
+        message.textContent = 'Please rotate your device to landscape and enter fullscreen mode to see emBET.';
+
+        document.body.appendChild(message);
+
+        // Update the message visibility based on orientation
+        function updatePortraitMessage() {
+            const isPortrait = window.innerHeight > window.innerWidth;
+            const message = document.getElementById('portraitMessage');
+            if (isPortrait) {
+                message.style.display = 'block';
+            } else {
+                message.style.display = 'none';
+            }
+        }
+
+        // Add an event listener to handle orientation changes
+        window.addEventListener('resize', updatePortraitMessage);
+
+        // Call the function initially to set the correct state
+        updatePortraitMessage();
 
         function enterFullscreenAndLandscape() {
             const video = document.getElementById('myVideo');
@@ -291,6 +480,106 @@
             event.preventDefault();
             console.log('Picture-in-Picture is disabled.');
         });
+
+        // Dynamically set the video source using JavaScript
+        const sourceUrl = "https://sr-streaming-archive.s3.eu-central-1.amazonaws.com/vodmanager/2025/12/17/tennis_atp_next_gen_atp_finals_men_singles_7713871_512k.mp4?X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIA22S3DJQU2YYUYQGA%2F20260105%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20260105T060712Z&X-Amz-SignedHeaders=host&X-Amz-Expires=604800&X-Amz-Signature=c832a853f17254ca1b435ca18a156b144c4e3db3919fbfb99a8c751cd6fc2ba2";
+
+        const source = document.createElement('source');
+        source.src = sourceUrl;
+        source.type = 'video/mp4';
+
+        video.appendChild(source);
+
+        const highlights = [
+          { time: 10, label: "Highlight 1" },
+          { time: 30, label: "Highlight 2" },
+          { time: 50, label: "Highlight 3" }
+        ];
+
+        // Open the modal
+        function openModal() {
+          const modal = document.getElementById('highlightModal');
+          const backdrop = document.getElementById('modalBackdrop');
+          const list = document.getElementById('highlightList');
+
+          // Populate the highlight list
+          list.innerHTML = '';
+          highlights.forEach(highlight => {
+            const listItem = document.createElement('li');
+            listItem.style.cursor = 'pointer';
+            listItem.textContent = highlight.label;
+            listItem.onclick = () => {
+              player.currentTime(highlight.time);
+              closeModal();
+            };
+            list.appendChild(listItem);
+          });
+
+          modal.style.display = 'block';
+          backdrop.style.display = 'block';
+        }
+
+        // Close the modal
+        function closeModal() {
+          document.getElementById('highlightModal').style.display = 'none';
+          document.getElementById('modalBackdrop').style.display = 'none';
+        }
+
+        // Add a button below the portrait message for entering landscape and fullscreen
+        const fullscreenButton = document.createElement('button');
+        fullscreenButton.textContent = 'Enter Landscape & Fullscreen';
+        fullscreenButton.style.display = 'block';
+        fullscreenButton.style.margin = '10px auto';
+        fullscreenButton.style.padding = '10px 20px';
+        fullscreenButton.style.fontSize = '14px';
+        fullscreenButton.style.cursor = 'pointer';
+        fullscreenButton.style.display = 'none'; // Initially hidden
+        fullscreenButton.id = 'fullscreenButton';
+
+        document.body.appendChild(fullscreenButton);
+
+        fullscreenButton.onclick = async () => {
+            const video = document.getElementById('myVideo');
+            try {
+                // Attempt to lock screen orientation to landscape
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock('landscape');
+                } else {
+                    console.warn('Screen orientation lock not supported on this device.');
+                }
+
+                // Enter fullscreen mode
+                if (video.requestFullscreen) {
+                    await video.requestFullscreen();
+                } else if (video.webkitRequestFullscreen) {
+                    await video.webkitRequestFullscreen();
+                } else if (video.msRequestFullscreen) {
+                    await video.msRequestFullscreen();
+                } else {
+                    alert('Fullscreen mode is not supported on this device.');
+                }
+            } catch (error) {
+                console.error('Error entering fullscreen or locking orientation:', error);
+                alert('Unable to enter fullscreen or lock orientation.');
+            }
+        };
+
+        // Update the button visibility based on orientation
+        function updateFullscreenButton() {
+            const isPortrait = window.innerHeight > window.innerWidth;
+            const button = document.getElementById('fullscreenButton');
+            if (isPortrait) {
+                button.style.display = 'block';
+            } else {
+                button.style.display = 'none';
+            }
+        }
+
+        // Add an event listener to handle orientation changes
+        window.addEventListener('resize', updateFullscreenButton);
+
+        // Call the function initially to set the correct state
+        updateFullscreenButton();
     </script>
 </body>
 </html>
